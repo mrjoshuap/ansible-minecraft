@@ -1,0 +1,45 @@
+#!/bin/bash
+
+source {{ minecraft_etc_dir }}/minecraft.conf
+
+cd {{ minecraft_server_dir }}
+
+set -m
+
+case $1 in
+
+  stop)
+    echo "Stopping Minecraft"
+    {{ minecraft_bin_dir }}/mcrcon -H localhost -P $MINECRAFT_RCON_PORT -p $MINECRAFT_RCON_PASSWORD stop
+    sleep 5
+    test -f $MINECRAFT_PID_PATH_NAME && rm $MINECRAFT_PID_PATH_NAME
+
+    echo "Saving server data to persistent storage"
+    rm -rf {{ minecraft_backup_dir }}/server
+    cp -pR {{ minecraft_server_dir }} {{ minecraft_backup_dir }}/server
+  ;;
+
+  start)
+    echo "Starting Minecraft"
+    if [ "$(ls {{ minecraft_server_dir }} | wc -l)" == "0" ]; then
+      if [ -d "{{ minecraft_backup_dir }}/server" ]; then
+        echo "Restoring persisted data to ramdisk"
+        cp -pR {{ minecraft_backup_dir }}/server/* {{ minecraft_server_dir }}/
+      fi
+    fi
+    if [ ! -f $MINECRAFT_PID_PATH_NAME ]; then
+      /usr/bin/java {{ minecraft_java_opts }} -jar spigot.jar --noconsole &
+      echo $! > $MINECRAFT_PID_PATH_NAME
+      echo "Minecraft started ..."
+      fg
+    else
+      echo "Minecraft is already running ..."
+    fi
+  ;;
+
+  *)
+    echo "You must specify start or stop"
+    exit -1
+  ;;
+
+esac

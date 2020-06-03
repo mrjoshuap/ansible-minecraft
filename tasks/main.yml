@@ -1,0 +1,124 @@
+---
+# tasks file for mrjoshuap.minecraft
+
+- name: create minecraft user account
+  user:
+    name: '{{ minecraft_user_name }}'
+    comment: '{{ minecraft_user_comment }}'
+    uid: '{{ minecraft_user_uid }}'
+    home: '{{ minecraft_user_home }}'
+    create_home: yes
+    state: present
+
+- name: install openjdk
+  package:
+    name: '{{ minecraft_packages }}'
+    state: present
+
+- name: ensure minecraft directory structures exist
+  file:
+    name: '{{ item }}'
+    state: directory
+    owner: '{{ minecraft_user_name }}'
+    group: '{{ minecraft_user_name }}'
+    recurse: yes
+  loop: '{{ minecraft_directories }}'
+
+- name: create ramdisk for server data
+  mount:
+    state: mounted
+    fstype: tmpfs
+    opts: 'defaults,size={{ minecraft_ramdisk_size }},uid={{ minecraft_user_name }},gid={{ minecraft_user_name }}'
+    path: '{{ minecraft_server_dir }}'
+    src: tmpfs
+
+- name: create systemd unit configuration file
+  template:
+    src: templates/minecraft.conf.j2
+    dest: '{{ minecraft_etc_dir }}/minecraft.conf'
+    owner: '{{ minecraft_user_name }}'
+    group: '{{ minecraft_user_name }}'
+    mode: '0600'
+
+- name: create update script
+  template:
+    src: templates/update.sh.j2
+    dest: '{{ minecraft_bin_dir }}/update.sh'
+    owner: '{{ minecraft_user_name }}'
+    group: '{{ minecraft_user_name }}'
+    mode: '0755'
+
+- name: create systemd service script
+  template:
+    src: templates/minecraft.sh.j2
+    dest: '{{ minecraft_bin_dir }}/minecraft.sh'
+    owner: '{{ minecraft_user_name }}'
+    group: '{{ minecraft_user_name }}'
+    mode: '0755'
+    setype: bin_t
+
+- name: create systemd service file
+  template:
+    src: templates/minecraft.service.j2
+    dest: '/etc/systemd/system/minecraft.service'
+    owner: root
+    group: root
+    mode: '0644'
+  notify: systemd daemon-reload
+
+- name: configure firewall
+  firewalld:
+    port: '{{ item }}'
+    state: enabled
+    permanent: yes
+    immediate: yes
+  loop:
+    - '{{ minecraft_config_rcon_port }}/tcp'
+    - '{{ minecraft_config_server_port }}/tcp'
+
+- name: clone mcrcon repo
+  git:
+    repo: git://git.code.sf.net/p/mcrcon/code
+    dest: '{{ minecraft_build_mcrcon_dir }}'
+  become_user: '{{ minecraft_user_name }}'
+
+- name: build mcrcon
+  command: 'gcc mcrcon.c -o {{ minecraft_bin_dir }}/mcrcon'
+  become_user: '{{ minecraft_user_name }}'
+  args:
+    chdir: '{{ minecraft_build_mcrcon_dir }}'
+    creates: '{{ minecraft_bin_dir }}/mcrcon'
+
+- name: update minecraft
+  command: '{{ minecraft_bin_dir }}/update.sh'
+  args:
+    creates: '{{ minecraft_server_dir }}/spigot.jar'
+  become_user: '{{ minecraft_user_name }}'
+
+- name: create eula.txt
+  template:
+    src: templates/eula.txt.j2
+    dest: '{{ minecraft_server_dir }}/eula.txt'
+    owner: '{{ minecraft_user_name }}'
+    group: '{{ minecraft_user_name }}'
+    mode: '0644'
+
+- name: create server.properties
+  template:
+    src: templates/server.properties.j2
+    dest: '{{ minecraft_server_dir }}/server.properties'
+    owner: '{{ minecraft_user_name }}'
+    group: '{{ minecraft_user_name }}'
+    mode: '0644'
+
+- name: ensure minecraft user environment
+  blockinfile:
+    path: '{{ minecraft_user_home }}/.bashrc'
+    block: |
+      source {{ minecraft_etc_dir }}/minecraft.conf
+      export MINECRAFT_PORT MINECRAFT_RCON_PORT MINECRAFT_RCON_PASSWORD MINECRAFT_PID_PATH_NAME
+      alias mcs_start="{{ minecraft_bin_dir }}/minecraft.sh start"
+      alias mcs_stop="{{ minecraft_bin_dir }}/minecraft.sh stop"
+      alias mcs_console="{{ minecraft_bin_dir }}/mcrcon -H localhost -P $MINECRAFT_RCON_PORT -p $MINECRAFT_RCON_PASSWORD -t"
+      alias mcs_reset="find {{ minecraft_server_dir }}"
+  become_user: '{{ minecraft_user_name }}'

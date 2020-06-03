@@ -1,0 +1,30 @@
+[Unit]
+Description=Minecraft Server
+Documentation=
+
+Wants=network.target
+After=network.target
+
+[Service]
+User={{ minecraft_user_name }}
+Group={{ minecraft_user_name }}
+Type=simple
+Nice=5
+EnvironmentFile=-{{ minecraft_etc_dir }}/minecraft.conf
+KillMode=none
+SuccessExitStatus=0 1
+PIDFile={{ minecraft_etc_dir }}/minecraft.pid
+ProtectHome=true
+ProtectSystem=full
+PrivateDevices=true
+NoNewPrivileges=true
+PrivateTmp=true
+InaccessibleDirectories=/root /sys /srv -/opt /media -/lost+found
+ReadWriteDirectories={{ minecraft_server_dir }} {{ minecraft_backup_dir }} {{ minecraft_etc_dir }}
+WorkingDirectory={{ minecraft_server_dir }}
+ExecStart={{ minecraft_bin_dir }}/minecraft.sh start
+ExecStop={{ minecraft_bin_dir }}/minecraft.sh stop
+TimeoutSec=300
+
+[Install]
+WantedBy=multi-user.target
